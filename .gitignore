@@ -1,1 +1,4 @@
 target
+
+# Reviewed offline installation inputs are supplied by the operator.
+dependencies/offline/
