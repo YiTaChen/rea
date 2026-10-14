@@ -216,6 +216,44 @@ describe("Linux Hopper installation", () => {
 });
 
 describe("Linux Hopper package installation", () => {
+  it("rejects same-length tampering before writing or invoking the package manager", async () => {
+    const host = new RecordingLinuxHost();
+    host.archive = new Uint8Array([1, 2, 9]);
+    expect(await installFixture(host)).toEqual({
+      status: "failed",
+      reason: "integrity",
+    });
+    expect(host.installed).toEqual([]);
+    expect(host.cleaned).toEqual([]);
+  });
+
+  it.each(["", "0".repeat(40)])(
+    "fails closed when the trusted SHA-256 pin is unavailable or invalid",
+    async (digest) => {
+      const host = new RecordingLinuxHost();
+      const releases = releasesFor(host.archive);
+      releases.deb.file_sha256 = digest;
+      expect(await installLinuxHopper(host, { releases })).toEqual({
+        status: "failed",
+        reason: "release_metadata",
+      });
+      expect(host.downloads).toEqual([]);
+      expect(host.installed).toEqual([]);
+    },
+  );
+
+  it("rejects a foreign trusted-release URL before the host can request it", async () => {
+    const host = new RecordingLinuxHost();
+    const releases = releasesFor(host.archive);
+    releases.deb.filename = "https://attacker.test/Hopper-fixture.deb";
+    expect(await installLinuxHopper(host, { releases })).toEqual({
+      status: "failed",
+      reason: "release_metadata",
+    });
+    expect(host.downloads).toEqual([]);
+    expect(host.installed).toEqual([]);
+  });
+
   it.each(["deb", "rpm", "arch"] as const)(
     "downloads, verifies, installs, reads back, and cleans a %s package",
     async (family) => {
@@ -365,12 +403,12 @@ function releasesFor(
   bytes: Uint8Array,
 ): Record<
   LinuxPackageFamily,
-  { filename: string; file_length: string; file_hash: string }
+  { filename: string; file_length: string; file_sha256: string }
 > {
   const release = (extension: string) => ({
-    filename: `https://www.hopperapp.com:443/downloader/public/Hopper.${extension}`,
+    filename: `https://www.hopperapp.com:443/downloader/public/Hopper-fixture.${extension}`,
     file_length: String(bytes.byteLength),
-    file_hash: createHash("sha1").update(bytes).digest("hex"),
+    file_sha256: createHash("sha256").update(bytes).digest("hex"),
   });
   return {
     deb: release("deb"),

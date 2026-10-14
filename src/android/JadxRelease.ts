@@ -1,4 +1,4 @@
-/** Audited upstream release; source remains unmodified in the Git submodule. */
+/** Audited upstream JAR identity; the fork's patched launcher source has its own Git pin. */
 export const JADX_RELEASE = Object.freeze({
   version: "0.7.1",
   revision: "5844800a486d2248fa949b74c9896285f5b54de2",

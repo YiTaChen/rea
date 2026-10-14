@@ -20,12 +20,26 @@ import { macDeveloperIdRequirement } from "../process/MacCodeSignature.js";
 import {
   downloadHopperPackage,
   HOPPER_DOWNLOAD_BYTES,
+  isHopperDownloadUrl,
 } from "./HopperDownload.js";
 
 const execFileAsync = promisify(execFile);
 const RELEASES_URL =
   "https://www.hopperapp.com/include/files-api.php?request=releases&public=true";
 const DOWNLOAD_PREFIX = "https://www.hopperapp.com:443/downloader/public/";
+export interface MacHopperRelease {
+  readonly filename: string;
+  readonly file_length: string;
+  readonly file_sha256: string;
+}
+// Computed from the vendor's HTTPS artifact on 2026-10-14; its byte length and
+// legacy SHA-1 match the vendor API and the existing publisher-identity receipt.
+const SUPPORTED_RELEASE: MacHopperRelease = {
+  filename: `${DOWNLOAD_PREFIX}Hopper-6.6.0-demo.dmg`,
+  file_length: "34846271",
+  file_sha256:
+    "4e678442f4afe283566c34fa359f025b0e754065787caa0cae52fd7faf2f0a7b",
+};
 const HOPPER_PUBLISHER_REQUIREMENT = macDeveloperIdRequirement(
   HOPPER_PUBLISHER.bundleIdentifier,
   HOPPER_PUBLISHER.teamIdentifier,
@@ -40,11 +54,16 @@ export type MacHopperBundleVerification =
 /** Stable network and command effects disclosed before macOS Hopper setup. */
 export const macHopperInstallDisclosure = {
   networkOrigins: [RELEASES_URL, DOWNLOAD_PREFIX] as const,
+  downloadUrl: SUPPORTED_RELEASE.filename,
+  expectedBytes: Number(SUPPORTED_RELEASE.file_length),
+  expectedSha256: SUPPORTED_RELEASE.file_sha256,
   commands: [
     "hdiutil attach -readonly -nobrowse -mountpoint <private-mount> <verified-hopper.dmg>",
     "codesign --verify --deep --strict <mounted-hopper.app>",
     `codesign --verify --strict '-R${HOPPER_PUBLISHER_REQUIREMENT}' <mounted-hopper.app>`,
     "ditto <mounted-hopper.app> <user-Applications-stage>",
+    "codesign --verify --deep --strict <user-Applications-stage>",
+    `codesign --verify --strict '-R${HOPPER_PUBLISHER_REQUIREMENT}' <user-Applications-stage>`,
     "open <installed-hopper.app>",
   ] as const,
 };
@@ -100,7 +119,11 @@ export interface MacHopperInstallHost {
 
 /** Download, verify, and install Hopper into the current user's Applications directory. */
 export const installMacHopper = async (
-  options: { readonly replaceExisting?: boolean } = {},
+  options: {
+    readonly replaceExisting?: boolean;
+    /** Trusted release pin; normally omitted, with explicit fixtures in tests. */
+    readonly release?: MacHopperRelease;
+  } = {},
   host: MacHopperInstallHost = systemMacHopperInstallHost(
     homeDirectoryFromEnvironment(process.env, process.platform),
     process.env,
@@ -116,8 +139,17 @@ export const installMacHopper = async (
       const parsed = releasesSchema.safeParse(parseJson(metadata.bytes));
       if (!parsed.success)
         return { status: "failed", reason: "release_metadata" };
-      const release = parsed.data["OS X"];
-      if (!release.filename.startsWith(DOWNLOAD_PREFIX))
+      const metadataRelease = parsed.data["OS X"];
+      const release = options.release ?? SUPPORTED_RELEASE;
+      if (
+        !isHopperDownloadUrl(release.filename) ||
+        !/^\d+$/u.test(release.file_length) ||
+        Number(release.file_length) <= 0 ||
+        Number(release.file_length) > HOPPER_DOWNLOAD_BYTES ||
+        !/^[a-f0-9]{64}$/u.test(release.file_sha256) ||
+        metadataRelease.filename !== release.filename ||
+        metadataRelease.file_length !== release.file_length
+      )
         return { status: "failed", reason: "release_metadata" };
       const archive = await host.download(release.filename);
       if (!archive.ok) return { status: "failed", reason: "download" };
@@ -200,7 +232,7 @@ export const systemMacHopperInstallHost = (
     writePackage: (path, bytes) => writeFile(path, bytes, { mode: 0o600 }),
     async mount(packagePath, mountPath) {
       return commandSucceeds(
-        "hdiutil",
+        "/usr/bin/hdiutil",
         [
           "attach",
           "-readonly",
@@ -215,7 +247,7 @@ export const systemMacHopperInstallHost = (
     async unmount(mountPath) {
       if (
         !(await commandSucceeds(
-          "hdiutil",
+          "/usr/bin/hdiutil",
           ["detach", mountPath, "-force"],
           environment,
         ))
@@ -231,30 +263,7 @@ export const systemMacHopperInstallHost = (
       );
       return app === undefined ? undefined : join(mountPath, app.name);
     },
-    async validBundle(appPath) {
-      if (
-        !(await commandSucceeds(
-          "codesign",
-          ["--verify", "--deep", "--strict", appPath],
-          environment,
-        ))
-      )
-        return "invalid_signature";
-      if (
-        !(await commandSucceeds(
-          "codesign",
-          [
-            "--verify",
-            "--strict",
-            `-R${HOPPER_PUBLISHER_REQUIREMENT}`,
-            appPath,
-          ],
-          environment,
-        ))
-      )
-        return "unverified_publisher";
-      return "verified";
-    },
+    validBundle: (appPath) => verifyMacHopperBundle(appPath, environment),
     async destinationExists(path) {
       try {
         await access(path);
@@ -271,8 +280,14 @@ export const systemMacHopperInstallHost = (
         await mkdir(join(homeDirectory, "Applications"), { recursive: true });
         await rm(stage, { recursive: true, force: true });
         await rm(previous, { recursive: true, force: true });
-        await execFileAsync("ditto", [source, stage], { env: environment });
+        await execFileAsync("/usr/bin/ditto", [source, stage], {
+          env: environment,
+        });
         await access(join(stage, "Contents/MacOS/hopper"));
+        if ((await verifyMacHopperBundle(stage, environment)) !== "verified") {
+          await rm(stage, { recursive: true, force: true });
+          return false;
+        }
         if (replaceExisting) await rename(destination, previous);
         await rename(stage, destination);
         if (replaceExisting)
@@ -304,7 +319,7 @@ export const systemMacHopperInstallHost = (
       }
     },
     async openApplication(path) {
-      await execFileAsync("open", [path], { env: environment });
+      await execFileAsync("/usr/bin/open", [path], { env: environment });
     },
     cleanup: (path) => rm(path, { recursive: true, force: true }),
     retainCleanup: (cleanup) => pendingCleanup.add(cleanup),
@@ -325,15 +340,43 @@ export const systemMacHopperInstallHost = (
   };
 };
 
-const parseJson = (bytes: Uint8Array): unknown =>
-  JSON.parse(new TextDecoder().decode(bytes));
+const parseJson = (bytes: Uint8Array): unknown => {
+  try {
+    return JSON.parse(new TextDecoder().decode(bytes));
+  } catch (cause: unknown) {
+    void cause;
+    return undefined;
+  }
+};
 const integrityMatches = (
   bytes: Uint8Array,
-  release: z.infer<typeof releaseSchema>,
+  release: MacHopperRelease,
 ): boolean =>
   bytes.byteLength === Number(release.file_length) &&
   bytes.byteLength <= HOPPER_DOWNLOAD_BYTES &&
-  createHash("sha1").update(bytes).digest("hex") === release.file_hash;
+  createHash("sha256").update(bytes).digest("hex") === release.file_sha256;
+const verifyMacHopperBundle = async (
+  appPath: string,
+  environment: Readonly<NodeJS.ProcessEnv>,
+): Promise<MacHopperBundleVerification> => {
+  if (
+    !(await commandSucceeds(
+      "/usr/bin/codesign",
+      ["--verify", "--deep", "--strict", appPath],
+      environment,
+    ))
+  )
+    return "invalid_signature";
+  if (
+    !(await commandSucceeds(
+      "/usr/bin/codesign",
+      ["--verify", "--strict", `-R${HOPPER_PUBLISHER_REQUIREMENT}`, appPath],
+      environment,
+    ))
+  )
+    return "unverified_publisher";
+  return "verified";
+};
 const commandSucceeds = async (
   command: string,
   args: readonly string[],
@@ -353,6 +396,5 @@ const failureMessage = (cause: unknown): string =>
 const releaseSchema = z.object({
   filename: z.string().url(),
   file_length: z.string().regex(/^\d+$/u),
-  file_hash: z.string().regex(/^[a-f0-9]{40}$/u),
 });
 const releasesSchema = z.object({ "OS X": releaseSchema });

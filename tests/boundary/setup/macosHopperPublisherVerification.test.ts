@@ -1,5 +1,11 @@
 import { execFile } from "node:child_process";
-import { appendFile, copyFile, mkdir, writeFile } from "node:fs/promises";
+import {
+  access,
+  appendFile,
+  copyFile,
+  mkdir,
+  writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
@@ -88,6 +94,24 @@ describe("macOS Hopper publisher verification", () => {
     await appendFile(join(app, ...executableSegments), "appended\n");
     await expect(host().validBundle(app)).resolves.toBe("invalid_signature");
   });
+
+  itDarwin(
+    "refuses a copied stage from an untrusted publisher without publishing the destination",
+    async () => {
+      const root = await createTestTempDirectory("rea-hopper-copy-publisher-");
+      const source = await buildBundle(root, HOPPER_PUBLISHER.bundleIdentifier);
+      const installer = systemMacHopperInstallHost(root, { ...process.env });
+      const destination = installer.destination();
+      const stage = `${destination}.rea-stage`;
+      await expect(
+        installer.installBundle(source, destination, stage, false),
+      ).resolves.toBe(false);
+      await expect(access(destination)).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+      await expect(access(stage)).rejects.toMatchObject({ code: "ENOENT" });
+    },
+  );
 
   it("discloses the exact code requirement the installer enforces", () => {
     expect(macHopperInstallDisclosure.commands).toContain(

@@ -9,6 +9,7 @@ import { execFileOutput } from "../process/ExecFileOutput.js";
 import {
   downloadHopperPackage,
   HOPPER_DOWNLOAD_BYTES,
+  isHopperDownloadUrl,
 } from "./HopperDownload.js";
 
 /** Package-manager output retained per stream without stopping the command. */
@@ -21,25 +22,30 @@ const SUPPORTED_HOPPER_SHA256 = new Set([
 interface LinuxHopperRelease {
   readonly filename: string;
   readonly file_length: string;
-  readonly file_hash: string;
+  readonly file_sha256: string;
 }
+// Computed from the vendor's HTTPS artifacts on 2026-10-14. Their byte lengths
+// and legacy SHA-1 digests also matched the previously reviewed release pins.
 const SUPPORTED_RELEASES: Readonly<
   Record<LinuxPackageFamily, LinuxHopperRelease>
 > = {
   deb: {
     filename: `${DOWNLOAD_PREFIX}Hopper-6.4.2-Linux-demo.deb`,
     file_length: "35755772",
-    file_hash: "e4f79dff602648a8ff4a88b773875b6bfac0dc65",
+    file_sha256:
+      "7fb92d7bc94edbbf794e348a9ab2f9606b96578529985e884dff04a63e42b2c7",
   },
   rpm: {
     filename: `${DOWNLOAD_PREFIX}Hopper-6.4.2-Linux-demo.rpm`,
     file_length: "32264475",
-    file_hash: "b9a65f2f583a386d440d4401d9140aef3bf305de",
+    file_sha256:
+      "fe4305a7764e9445b4641c5b74c03b8f018df8bad5504aab2975d541767110f3",
   },
   arch: {
     filename: `${DOWNLOAD_PREFIX}Hopper-6.4.2-Linux-demo.pkg.tar.xz`,
     file_length: "29405968",
-    file_hash: "92d780b61cab38eda95dc4112dee4fbeb0920f46",
+    file_sha256:
+      "e703c1e20bae08f25c847ee07d33210b05c78308f815d31c72276684f2224310",
   },
 };
 
@@ -49,7 +55,7 @@ export type LinuxPackageFamily = "deb" | "rpm" | "arch";
 export interface LinuxHopperInstallDisclosure {
   readonly downloadUrl: string;
   readonly expectedBytes: number;
-  readonly expectedSha1: string;
+  readonly expectedSha256: string;
   readonly commands: readonly string[];
 }
 
@@ -62,7 +68,7 @@ export const linuxHopperInstallDisclosure = (
   return {
     downloadUrl: release.filename,
     expectedBytes: Number(release.file_length),
-    expectedSha1: release.file_hash,
+    expectedSha256: release.file_sha256,
     commands: linuxPackageManagerCommands(
       family,
       `<verified-hopper.${family}>`,
@@ -287,6 +293,14 @@ export const installLinuxHopper = async (
       const release = (options.releases ?? SUPPORTED_RELEASES)[
         distribution.packageFamily
       ];
+      if (
+        !isHopperDownloadUrl(release.filename) ||
+        !/^\d+$/u.test(release.file_length) ||
+        !/^[a-f0-9]{64}$/u.test(release.file_sha256) ||
+        Number(release.file_length) <= 0 ||
+        Number(release.file_length) > HOPPER_DOWNLOAD_BYTES
+      )
+        return { status: "failed", reason: "release_metadata" };
       const archiveDownload = await host.download(release.filename, options);
       if (!archiveDownload.ok) return { status: "failed", reason: "download" };
       if (!packageIntegrityMatches(archiveDownload.bytes, release))
@@ -498,7 +512,7 @@ const packageIntegrityMatches = (
 ): boolean =>
   bytes.byteLength === Number(release.file_length) &&
   bytes.byteLength <= HOPPER_DOWNLOAD_BYTES &&
-  createHash("sha1").update(bytes).digest("hex") === release.file_hash;
+  createHash("sha256").update(bytes).digest("hex") === release.file_sha256;
 
 const packageFamilyFor = (
   id: string,

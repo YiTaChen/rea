@@ -330,7 +330,7 @@ const linuxDisclosure = (family: LinuxPackageFamily) => {
   return {
     networkOrigins: [disclosure.downloadUrl],
     commands: disclosure.commands,
-    integrity: `${String(disclosure.expectedBytes)} bytes · SHA-1 ${disclosure.expectedSha1}`,
+    integrity: `${String(disclosure.expectedBytes)} bytes · SHA-256 ${disclosure.expectedSha256}`,
   };
 };
 

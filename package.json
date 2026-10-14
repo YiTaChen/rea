@@ -73,6 +73,9 @@
     "scripts/hopper-demo-x11.py",
     "scripts/prepack.mjs",
     "scripts/prepare.mjs",
+    "scripts/install-verified-frida.mjs",
+    "scripts/lib/verified-frida.mjs",
+    "third_party/frida/verified-artifacts.json",
     "skills",
     "README.md",
     "DISCLAIMER.md",
@@ -100,25 +103,20 @@
   "scripts": {
     "release:notes": "node scripts/release-notes.mjs",
     "deps:check": "node scripts/check-dependency-install.mjs",
+    "install:frida:verified": "node scripts/install-verified-frida.mjs",
+    "test:verified-downloads": "node --test scripts/lib/verified-frida.test.mjs",
     "metadata:generate": "node scripts/run-exclusive.mjs artifacts node scripts/generate-package-metadata.mjs",
     "metadata:check": "node scripts/generate-package-metadata.mjs --check",
     "mcp-registry:check": "node scripts/verify-mcp-registry-metadata.mjs",
     "mcp-catalog:generate": "node scripts/check-dependency-install.mjs && node scripts/run-exclusive.mjs artifacts turbo run artifacts:mcp-catalog",
     "mcp-catalog:check": "node scripts/check-dependency-install.mjs && node scripts/run-exclusive.mjs artifacts turbo run mcp-catalog:check:built",
-    "prebuild": "npm run deps:check",
-    "build": "node scripts/run-exclusive.mjs artifacts turbo run artifacts:skills --force",
-    "precheck": "npm run deps:check",
-    "check": "node scripts/run-exclusive.mjs artifacts turbo run typecheck lint:built format:check knip metadata:check && npm run verify:architecture-guards",
-    "precheck:fast": "npm run deps:check",
-    "check:fast": "turbo run typecheck lint --output-logs=errors-only",
-    "precheck:changed": "npm run deps:check",
-    "check:changed": "npm run check:fast && npm run test:changed",
-    "precheck:test": "npm run deps:check",
-    "check:test": "node scripts/run-exclusive.mjs artifacts turbo run typecheck lint:built format:check knip metadata:check test:run",
-    "precheck:pr": "npm run deps:check",
-    "check:pr": "node scripts/run-exclusive.mjs artifacts turbo run typecheck lint:built format:check knip metadata:check test:run && npm run test:python && npm run docs:check && npm run jscpd && npm run scan:todos",
-    "precheck:ci": "npm run deps:check",
-    "check:ci": "node scripts/run-exclusive.mjs artifacts npm run check:ci:tasks && npm run verify:architecture-guards",
+    "build": "npm run deps:check && node scripts/run-exclusive.mjs artifacts turbo run artifacts:skills --force",
+    "check": "npm run deps:check && node scripts/run-exclusive.mjs artifacts turbo run typecheck lint:built format:check knip metadata:check && npm run verify:architecture-guards",
+    "check:fast": "npm run deps:check && turbo run typecheck lint --output-logs=errors-only",
+    "check:changed": "npm run deps:check && npm run check:fast && npm run test:changed",
+    "check:test": "npm run deps:check && node scripts/run-exclusive.mjs artifacts turbo run typecheck lint:built format:check knip metadata:check test:run",
+    "check:pr": "npm run deps:check && node scripts/run-exclusive.mjs artifacts turbo run typecheck lint:built format:check knip metadata:check test:run && npm run test:python && npm run docs:check && npm run jscpd && npm run scan:todos",
+    "check:ci": "npm run deps:check && node scripts/run-exclusive.mjs artifacts npm run check:ci:tasks && npm run verify:architecture-guards",
     "check:ci:tasks": "turbo run typecheck lint:built format:check knip metadata:check jscpd scan:todos",
     "ci:static-context": "node scripts/ci/static-task-context.mjs",
     "build:cached": "node scripts/check-dependency-install.mjs && node scripts/run-exclusive.mjs artifacts turbo run artifacts:skills",
@@ -142,31 +140,21 @@
     "test:local": "node scripts/run-development-tests.mjs local",
     "test:fast": "node scripts/ci/test-group.mjs source",
     "test:built": "node scripts/ci/test-group.mjs built",
-    "pretest:boundary": "npm run test:prepare",
-    "test:boundary": "vitest run --project boundary --project cli-boundary --project process-boundary --project mcp-boundary --project process-global",
-    "pretest:mcp": "node scripts/check-dependency-install.mjs && node scripts/run-exclusive.mjs artifacts turbo run artifacts:skills artifacts:mcp-catalog",
-    "test:mcp": "vitest run --project mcp-boundary",
-    "pretest:acceptance": "npm run build:cached",
-    "test:acceptance": "vitest run --project acceptance",
+    "test:boundary": "npm run test:prepare && vitest run --project boundary --project cli-boundary --project process-boundary --project mcp-boundary --project process-global",
+    "test:mcp": "node scripts/check-dependency-install.mjs && node scripts/run-exclusive.mjs artifacts turbo run artifacts:skills artifacts:mcp-catalog && vitest run --project mcp-boundary",
+    "test:acceptance": "npm run build:cached && vitest run --project acceptance",
     "test:changed": "node scripts/run-development-tests.mjs changed",
-    "pretest:integration": "npm run test:prepare",
-    "test:integration": "vitest run --project boundary --project cli-boundary --project process-boundary --project mcp-boundary --project process-global --project acceptance",
-    "pretest:coverage": "npm run test:prepare",
-    "test:coverage": "vitest run --coverage.enabled --coverage.provider=v8",
-    "test:coverage:reverse-tools": "vitest run --config vitest.reverse-tools.config.ts --coverage.enabled",
-    "pretest:coverage:reverse-tools": "npm run test:prepare",
-    "test:mutation:reverse-tools": "node scripts/prepare-reverse-tools-mutation.mjs && stryker run stryker.config.mjs && stryker run stryker.semantics.config.mjs",
-    "pretest:mutation:reverse-tools": "npm run test:prepare",
+    "test:integration": "npm run test:prepare && vitest run --project boundary --project cli-boundary --project process-boundary --project mcp-boundary --project process-global --project acceptance",
+    "test:coverage": "npm run test:prepare && vitest run --coverage.enabled --coverage.provider=v8",
+    "test:coverage:reverse-tools": "npm run test:prepare && vitest run --config vitest.reverse-tools.config.ts --coverage.enabled",
+    "test:mutation:reverse-tools": "npm run test:prepare && node scripts/prepare-reverse-tools-mutation.mjs && stryker run stryker.config.mjs && stryker run stryker.semantics.config.mjs",
     "test:ci": "npm run test:coverage -- --reporter=default --reporter=junit --outputFile.junit=test-results.xml",
-    "pretest:ci:shard": "npm run test:prepare",
-    "test:ci:shard": "npm run test:ci:shard:run",
+    "test:ci:shard": "npm run test:prepare && npm run test:ci:shard:run",
     "test:ci:shard:run": "vitest run --coverage.enabled --coverage.provider=v8 --coverage.thresholds.lines=0 --coverage.thresholds.functions=0 --coverage.thresholds.branches=0 --coverage.thresholds.statements=0 --reporter=default --reporter=blob",
     "test:ci:merge": "vitest --merge-reports --coverage.enabled --coverage.provider=v8",
-    "pretest:verbose": "npm run test:prepare",
-    "test:verbose": "vitest run --reporter=verbose",
+    "test:verbose": "npm run test:prepare && vitest run --reporter=verbose",
     "test:watch": "vitest --project domain --project services --project adapters --project composition --project conformance --project evaluation --changed",
-    "pretest:watch:all": "npm run test:prepare",
-    "test:watch:all": "vitest --changed",
+    "test:watch:all": "npm run test:prepare && vitest --changed",
     "typecheck": "tsc --noEmit",
     "verify:test-temp-hygiene": "npm run test:prepare && node scripts/verify-test-temp-hygiene.mjs",
     "verify:hopper": "npm run verify:fixtures && npm run build:cached && node scripts/verify-real-hopper.mjs",
@@ -246,10 +234,8 @@
     "config:print": "node scripts/print-mcp-config.mjs",
     "evidence:generate": "node scripts/check-dependency-install.mjs && node scripts/run-exclusive.mjs artifacts turbo run artifacts:managed-evidence",
     "evidence:check": "node scripts/check-dependency-install.mjs && node scripts/run-exclusive.mjs artifacts turbo run evidence:check:built",
-    "predocs:dev": "npm run docs:generate",
-    "docs:dev": "vitepress dev docs",
-    "predocs:build": "npm run docs:generate",
-    "docs:build": "vitepress build docs",
+    "docs:dev": "npm run docs:generate && vitepress dev docs",
+    "docs:build": "npm run docs:generate && vitepress build docs",
     "docs:preview": "vitepress preview docs",
     "docs:generate": "node scripts/check-dependency-install.mjs && node scripts/run-exclusive.mjs artifacts npm run docs:prepare",
     "docs:check": "node scripts/check-dependency-install.mjs && node scripts/run-exclusive.mjs artifacts turbo run docs:check:built && npm run test:local -- tests/conformance/readmeConsistency.test.ts",
@@ -302,7 +288,9 @@
     "docs:prepare": "node scripts/generate-package-metadata.mjs && turbo run artifacts:product-catalog artifacts:managed-evidence artifacts:error-schema",
     "verify:web:qlog": "npm run build:cached && node scripts/verify-qlog-captures.mjs",
     "licenses:generate": "node scripts/generate-third-party-inventory.mjs",
-    "licenses:check": "node scripts/generate-third-party-inventory.mjs --check"
+    "licenses:check": "node scripts/generate-third-party-inventory.mjs --check",
+    "pack:verified": "node scripts/prepack.mjs && npm run verify:windows-native:artifact && npm pack --ignore-scripts",
+    "publish:verified": "node scripts/prepack.mjs && npm run verify:windows-native:artifact && npm publish --ignore-scripts"
   },
   "lint-staged": {
     "*.{cjs,cts,js,jsx,mjs,mts,ts,tsx}": [
@@ -353,6 +341,11 @@
     "zod": "4.4.3"
   },
   "overrides": {
+    "@stryker-mutator/core": {
+      "typed-rest-client": {
+        "qs": "6.16.0"
+      }
+    },
     "vitepress": {
       "vite": "6.4.4"
     }
@@ -386,6 +379,6 @@
     "frida": "17.23.2"
   },
   "allowScripts": {
-    "frida@17.23.2": true
+    "frida@17.23.2": false
   }
 }

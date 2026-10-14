@@ -131,13 +131,22 @@ npm ci
 npm run check:fast
 ```
 
-`npm ci` installs the exact dependencies and prepares the Husky hooks without
-building the project. Run `npm run build:cached` when you need the standalone
+`npm ci` installs the exact dependencies with lifecycle scripts disabled by
+the repository's `.npmrc`. To opt into the reviewed source Git hooks, run
+`node scripts/prepare.mjs` explicitly. Optional Frida native bindings use
+`npm run install:frida:verified` and pinned release SHA-256 identities; do not
+enable its upstream lifecycle download script. Run `npm run build:cached` when you need the standalone
 CLI or MCP server; it compiles the runtime and bundles the authored skill.
 `npm run build` forces those tasks to rerun. Neither command generates test
 catalogs, documentation projections, or managed verification evidence. Turbo
 caches deterministic builds and static checks across Git worktrees. After a package, lockfile, or managed-skill version change, run
 `npm run metadata:generate` before building.
+
+Build, test and documentation prerequisites are embedded in their explicit
+scripts so they still run when automatic lifecycle hooks are disabled. Release
+preparation uses `npm run pack:verified` or `npm run publish:verified`; ordinary
+`npm pack` and `npm publish` skip lifecycle preparation under this setting.
+Both verified release commands retain the prepack and native-artifact checks.
 
 Repository invariants live in [AGENTS.md](AGENTS.md). Keep provider-specific
 protocols in adapters and shared CLI/MCP workflows in the application layer.

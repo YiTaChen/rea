@@ -1,3 +1,5 @@
+> 這是 YiTaChen 的安全修補原始碼 fork。請從這個 repo 安裝，才能使用依賴與下載驗證修補；上游 npm 套件尚未被替換。repo 中的 `docs/security-hardening.md` 說明安裝方式、驗證結果與仍保留的維護通知。
+
 <div align="center">
 
 [English](../../README.md) · [简体中文](README_zh.md) · **繁體中文** · [日本語](README_ja.md) · [한국어](README_ko.md) · [Türkçe](README_tr.md) · [Русский](README_ru.md) · [Tiếng Việt](README_vi.md) · [ไทย](README_th.md) · [Deutsch](README_de.md) · [Español](README_es.md) · [Français](README_fr.md) · [Українська](README_uk.md) · [Polski](README_pl.md) · [Português (Brasil)](README_pt-BR.md) · [العربية](README_ar.md) · [فارسی](README_fa.md) · [Bahasa Indonesia](README_id.md) · [Italiano](README_it.md)

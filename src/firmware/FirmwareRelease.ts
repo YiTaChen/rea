@@ -1,4 +1,4 @@
-/** Audited upstream sources; installed tool bytes are fingerprinted separately. */
+/** Upstream release references; patched Git pins are documented separately and installed bytes retain their own identity. */
 export const FIRMWARE_RELEASES = {
   binwalk: {
     version: "3.1.0",

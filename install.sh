@@ -126,7 +126,7 @@ main() {
   if [ "$version_requested" = true ] || [ -n "$version" ]; then
     matches "$version" "^${version_pattern}$" || fail "version must be an exact semantic version."
   else
-    release_json="$(curl -fsSL --proto '=https' --tlsv1.2 --retry 3 -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$REPOSITORY/releases/latest")" || fail "the latest REA release could not be resolved. Check network access or pass --version VERSION, then retry."
+    release_json="$(curl -fsS --proto '=https' --tlsv1.2 --max-time 30 --retry 3 -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$REPOSITORY/releases/latest")" || fail "the latest REA release could not be resolved. Check network access or pass --version VERSION, then retry."
     tag="$(printf '%s' "$release_json" | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{const v=JSON.parse(s).tag_name;if(typeof v!=="string")process.exit(1);process.stdout.write(v)})' 2>/dev/null)" || fail "the release response was invalid. Retry later or pass --version VERSION."
     matches "$tag" "^rea-agents-(${version_pattern})$" || fail "the latest release tag was invalid. Retry later or pass --version VERSION."
     version="${BASH_REMATCH[1]}"
@@ -138,7 +138,7 @@ main() {
     fail "npm cannot install an exact version with build metadata. Pass a version without build metadata, then retry."
   fi
 
-  install_args=(install --global)
+  install_args=(install --global --ignore-scripts)
   if [ "$platform" = "Linux" ]; then
     install_args+=(--prefix "$HOME/.local")
     install_bin="$HOME/.local/bin/rea"

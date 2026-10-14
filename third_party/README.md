@@ -1,18 +1,21 @@
 # Upstream analysis engines
 
-REA integrates existing tools through provider adapters. Upstream source remains
-unmodified and retains its own license; it is not copied into REA's domain or
-application code.
+REA integrates existing tools through provider adapters. Optional source retains its upstream license and is not copied into REA's domain
+or application code. This fork applies dependency and installer verification
+patches to three pinned submodules; the source histories are available in the
+same repository under `vendor/*-security-2026-10-14` branches.
 
 ## jadx-headless-mcp
 
 - Source: <https://github.com/1013503897/jadx-headless-mcp>
 - Submodule: `third_party/jadx-headless-mcp`
 - Release: `v0.7.1`
-- Commit: `5844800a486d2248fa949b74c9896285f5b54de2`
+- Commit: `dac72c40f602115d6ce3293d4d91663546ad1b4a`
 - License: Apache-2.0; see the submodule's `LICENSE`.
 - Release identity: `src/android/JadxRelease.ts`.
-- REA integration: `src/android/`; no upstream patches in this version.
+- REA integration: `src/android/`; launcher and Gradle download verification patches
+  in this source fork. The original upstream revision was
+  `5844800a486d2248fa949b74c9896285f5b54de2`.
 
 Fetch source for inspection with:
 
@@ -45,10 +48,15 @@ is needed. APKs and JARs are neither tracked nor included in npm packages.
 
 | Engine | Source | Release | Pinned commit | License |
 | --- | --- | --- | --- | --- |
-| Binwalk | <https://github.com/ReFirmLabs/binwalk> | v3.1.0 | `4fdab3d464d97b68e0af9088df3f9e2e1545b21c` | MIT, upstream `LICENSE` |
-| Unblob | <https://github.com/onekey-sec/unblob> | 26.6.4 | `1fcc7a0a584a70a96c31f5a276c20944d199a089` | MIT, upstream `LICENSE` |
+| Binwalk | <https://github.com/ReFirmLabs/binwalk> | v3.1.0 | `b7894e029642adaf67f7b1c244a26325ea433579` | MIT, upstream `LICENSE` |
+| Unblob | <https://github.com/onekey-sec/unblob> | 26.6.4 | `cbe989c04c1c45440ec16e696ee7ce18df7d7724` | MIT, upstream `LICENSE` |
 
-Source remains unmodified in `third_party/binwalk` and `third_party/unblob`.
+Patched sources are pinned in `third_party/binwalk` and `third_party/unblob`.
+Their original upstream revisions are Binwalk
+`4fdab3d464d97b68e0af9088df3f9e2e1545b21c` and Unblob
+`1fcc7a0a584a70a96c31f5a276c20944d199a089`. The patched revisions above
+include dependency locks and verified/offline installer changes; they are not
+byte-identical to the original upstream releases.
 Release records live in `src/firmware/FirmwareRelease.ts`; REA adapters own the
 CLI/report interpretation and lifecycle in `src/firmware/`. Caller-supplied
 executables retain their actual launcher digest and unknown source revision;

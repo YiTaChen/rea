@@ -38,7 +38,7 @@ describe("curl installer scenarios", { timeout: 20_000 }, () => {
     expect(result.stdout).toContain("REA 0.3.0 is installed");
     expect(result.stdout).toContain("Run ");
     expect(await readFile(fixture.npmLog, "utf8")).toContain(
-      "install --global --prefix",
+      "install --global --ignore-scripts --prefix",
     );
     expect(await readFile(fixture.reaLog, "utf8")).toBe("--version\n");
     expect(await readdir(fixture.temporary)).toEqual([]);
@@ -375,6 +375,7 @@ describe("Linux user-prefix installer", { timeout: 20_000 }, () => {
     expect(printed.stdout.split("\0")).toEqual([
       "install",
       "--global",
+      "--ignore-scripts",
       "--prefix",
       join(home, ".local"),
       "rea-agents@0.3.0",
@@ -392,11 +393,11 @@ describe("native macOS installer", { timeout: 20_000 }, () => {
       FAKE_NPM_PREFIX: join(fixture.home, "npm global prefix"),
     });
     expect(result.stdout).toContain(
-      "  Command: npm install --global rea-agents@0.3.0\n",
+      "  Command: npm install --global --ignore-scripts rea-agents@0.3.0\n",
     );
     expect(result.stdout).toContain("REA 0.3.0 is installed");
     expect(await readFile(fixture.npmLog, "utf8")).toBe(
-      "prefix --global\ninstall --global rea-agents@0.3.0\n",
+      "prefix --global\ninstall --global --ignore-scripts rea-agents@0.3.0\n",
     );
     expect(await readFile(fixture.reaLog, "utf8")).toBe("--version\n");
     expect(await readdir(fixture.temporary)).toEqual([]);

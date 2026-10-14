@@ -41,14 +41,19 @@ and skip rules stay enabled. Sandbox startup failures remain actionable errors;
 REA does not retry with `--no-sandbox`. Missing extractors reported in a valid
 analysis report retain partial results and dependency names inline.
 
-Upstream sources are preserved unmodified as optional pinned submodules:
+This fork keeps optional pinned submodules with reviewed dependency and installer
+patches. Their complete source histories are published in this repository's
+`vendor/*-security-2026-10-14` branches:
 
 ```sh
 git submodule update --init third_party/binwalk third_party/unblob
 ```
 
 Normal REA builds and npm packages do not include or build these sources or
-engine binaries. See [upstream provenance](https://github.com/morluto/rea/blob/main/third_party/README.md).
+engine binaries. See [source provenance](https://github.com/YiTaChen/rea/blob/main/third_party/README.md)
+and [fork security changes](security-hardening.md). Install optional external
+extractors only with the trusted artifact and hash requirements in each
+submodule's installation guide.
 
 ## CLI and MCP
 
