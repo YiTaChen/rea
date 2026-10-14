@@ -11,3 +11,7 @@ build/
 /.venv
 unblob.log
 /.direnv
+
+# Operator-supplied reviewed extractor artifacts for Docker builds.
+extractor-artifacts/
+python-wheelhouse/
