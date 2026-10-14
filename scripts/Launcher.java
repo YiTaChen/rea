@@ -1,7 +1,7 @@
 // jadx-headless plugin bootstrap launcher.
 //
 // Run in JDK "source-file mode" (JEP 330, JDK 11+):
-//     java Launcher.java <dataDir> <version> <jarUrl> <sha256|placeholder> [serverArgs...]
+//     java Launcher.java <dataDir> <version> <jarUrl> <sha256> [serverArgs...]
 //
 // Why this exists: the jadx-headless MCP server is a ~50 MB JVM fat jar. Rather than commit
 // that binary into the plugin repo (bad for a git-based / community marketplace and for the
@@ -14,6 +14,7 @@
 // which the child jar owns via inheritIO().
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -22,19 +23,28 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.LinkOption;
 import java.security.MessageDigest;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.regex.Pattern;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class Launcher {
+    private static final long MAX_JAR_BYTES = 256L * 1024 * 1024;
+    private static final long DOWNLOAD_TIMEOUT_NANOS = TimeUnit.MINUTES.toNanos(10);
     private static final Pattern SHA256 = Pattern.compile("[0-9a-fA-F]{64}");
+    private static final Pattern VERSION = Pattern.compile("[0-9]+(?:\\.[0-9]+){1,3}(?:-[A-Za-z0-9][A-Za-z0-9.-]*)?");
 
     public static void main(String[] argv) throws Exception {
         if (argv.length < 4) {
-            System.err.println("[jadx-plugin] usage: java Launcher.java <dataDir> <version> <jarUrl> <sha256|placeholder> [serverArgs...]");
+            System.err.println("[jadx-plugin] usage: java Launcher.java <dataDir> <version> <jarUrl> <sha256> [serverArgs...]");
             System.exit(2);
         }
         Path dataDir = Paths.get(argv[0]);
@@ -43,31 +53,30 @@ public class Launcher {
         String sha = argv[3];
         String[] serverArgs = Arrays.copyOfRange(argv, 4, argv.length);
 
+        // Validate the trust inputs before a cache lookup, network request or child process.
+        if (!SHA256.matcher(sha).matches()) {
+            throw new IllegalArgumentException("A real pinned 64-character SHA-256 is required; placeholders are refused");
+        }
+        if (!VERSION.matcher(version).matches()) {
+            throw new IllegalArgumentException("Invalid release version");
+        }
+        URI releaseUri = URI.create(url);
+        requireHttps(releaseUri);
+        if (Files.isSymbolicLink(dataDir)) {
+            throw new IOException("The artifact cache must not be a symbolic link");
+        }
         Files.createDirectories(dataDir);
         Path jar = dataDir.resolve("jadx-headless-mcp-" + version + "-all.jar");
-        boolean pinned = SHA256.matcher(sha).matches();
-
-        boolean needDownload = !Files.exists(jar);
-        if (!needDownload && pinned && !sha256(jar).equalsIgnoreCase(sha)) {
-            System.err.println("[jadx-plugin] cached jar failed sha256 check -> re-downloading");
-            needDownload = true;
+        if (Files.exists(jar, LinkOption.NOFOLLOW_LINKS) &&
+                !Files.isRegularFile(jar, LinkOption.NOFOLLOW_LINKS)) {
+            throw new IOException("Cached jar must be a regular file");
         }
-        if (needDownload) {
-            download(url, jar);
-            if (pinned) {
-                String got = sha256(jar);
-                if (!got.equalsIgnoreCase(sha)) {
-                    Files.deleteIfExists(jar);
-                    System.err.println("[jadx-plugin] FATAL: sha256 mismatch after download");
-                    System.err.println("[jadx-plugin]   expected " + sha);
-                    System.err.println("[jadx-plugin]   got      " + got);
-                    System.exit(3);
-                }
-                System.err.println("[jadx-plugin] sha256 verified");
-            } else {
-                System.err.println("[jadx-plugin] WARNING: sha256 not pinned (\"" + sha + "\") -> integrity NOT verified.");
-                System.err.println("[jadx-plugin]          Pin the real release hash in .mcp.json before publishing (see PLUGIN.md).");
-            }
+        if (!Files.exists(jar) || !sha256(jar).equalsIgnoreCase(sha)) {
+            download(releaseUri, jar, sha);
+        }
+        // Verify again on every start, including an existing offline cache.
+        if (!sha256(jar).equalsIgnoreCase(sha)) {
+            throw new IOException("Cached jar failed its pinned SHA-256 check");
         }
 
         // Use the same JVM that launched this source file to run the jar (avoids relying on a
@@ -86,26 +95,78 @@ public class Launcher {
         System.exit(child.waitFor());
     }
 
-    private static void download(String url, Path dest) throws Exception {
-        System.err.println("[jadx-plugin] downloading " + url);
+    private static void requireHttps(URI uri) {
+        if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getHost() == null || uri.getUserInfo() != null) {
+            throw new IllegalArgumentException("Release downloads require an HTTPS URL without embedded credentials");
+        }
+    }
+
+    private static void download(URI uri, Path dest, String expectedSha256) throws Exception {
+        requireHttps(uri);
+        System.err.println("[jadx-plugin] downloading " + uri);
         HttpClient client = HttpClient.newBuilder()
+                // NORMAL permits HTTPS-to-HTTPS redirects but refuses HTTPS-to-HTTP downgrade.
                 .followRedirects(HttpClient.Redirect.NORMAL)
                 .connectTimeout(Duration.ofSeconds(30))
                 .build();
-        // Whole-response timeout so a stalled download fails loudly instead of hanging the MCP
-        // startup forever. 10 min is generous for a ~50 MB jar on a slow link.
-        HttpRequest req = HttpRequest.newBuilder(URI.create(url))
+        HttpRequest req = HttpRequest.newBuilder(uri)
                 .timeout(Duration.ofMinutes(10))
                 .GET()
                 .build();
-        Path tmp = Paths.get(dest.toString() + ".tmp");
-        HttpResponse<Path> resp = client.send(req, HttpResponse.BodyHandlers.ofFile(tmp));
-        if (resp.statusCode() != 200) {
-            try { Files.deleteIfExists(tmp); } catch (IOException ignored) {}
-            throw new IOException("download failed: HTTP " + resp.statusCode() + " for " + url);
+        // Unique private temp file: never overwrite a predictable cache .tmp path.
+        Path tmp = Files.createTempFile(dest.getParent(), ".jadx-download-", ".tmp");
+        long deadline = System.nanoTime() + DOWNLOAD_TIMEOUT_NANOS;
+        ScheduledExecutorService timer = Executors.newSingleThreadScheduledExecutor();
+        try {
+            HttpResponse<InputStream> resp = client.send(req, HttpResponse.BodyHandlers.ofInputStream());
+            try (InputStream body = resp.body()) {
+                requireHttps(resp.uri());
+                if (resp.statusCode() != 200) {
+                    throw new IOException("download failed: HTTP " + resp.statusCode() + " for " + uri);
+                }
+                long remaining = deadline - System.nanoTime();
+                if (remaining <= 0) throw new IOException("Release download timed out");
+                AtomicBoolean expired = new AtomicBoolean(false);
+                // Request timeout alone only covers response headers for a streaming body.
+                // Closing the response stream cancels a stalled body after the total deadline.
+                timer.schedule(() -> {
+                    expired.set(true);
+                    try { body.close(); } catch (IOException ignored) {}
+                }, remaining, TimeUnit.NANOSECONDS);
+                try (OutputStream output = Files.newOutputStream(tmp)) {
+                    copyBounded(body, output, MAX_JAR_BYTES);
+                }
+                if (expired.get()) throw new IOException("Release download timed out");
+            }
+            promoteVerified(tmp, dest, expectedSha256);
+            System.err.println("[jadx-plugin] sha256 verified and saved " + dest);
+        } finally {
+            timer.shutdownNow();
+            Files.deleteIfExists(tmp);
         }
-        Files.move(tmp, dest, StandardCopyOption.REPLACE_EXISTING);
-        System.err.println("[jadx-plugin] saved " + dest + " (" + Files.size(dest) + " bytes)");
+    }
+
+    private static void copyBounded(InputStream body, OutputStream output, long maxBytes) throws IOException {
+        byte[] buffer = new byte[1 << 16];
+        long total = 0;
+        int count;
+        while ((count = body.read(buffer)) != -1) {
+            total += count;
+            if (total > maxBytes) throw new IOException("Release download exceeds the size limit");
+            output.write(buffer, 0, count);
+        }
+    }
+
+    private static void promoteVerified(Path tmp, Path dest, String expectedSha256) throws Exception {
+        if (!SHA256.matcher(expectedSha256).matches() || !sha256(tmp).equalsIgnoreCase(expectedSha256)) {
+            throw new IOException("Downloaded jar failed its pinned SHA-256 check");
+        }
+        // An unverified response is never promoted into the executable cache.
+        try {
+            Files.move(tmp, dest, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        } catch (AtomicMoveNotSupportedException ex) {
+            Files.move(tmp, dest, StandardCopyOption.REPLACE_EXISTING);
+        }
     }
 
     private static String sha256(Path p) throws Exception {

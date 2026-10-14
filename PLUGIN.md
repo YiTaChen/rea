@@ -93,3 +93,37 @@ claude --plugin-dir .
 ```
 
 Run `/reload-plugins` to pick up edits without restarting.
+
+## Download integrity
+
+`.mcp.json` now pins the official v0.7.1 fat JAR, matching this source version. Its
+SHA-256 matches the publisher's [GitHub release asset metadata](https://api.github.com/repos/1013503897/jadx-headless-mcp/releases/tags/v0.7.1).
+The launcher requires a real pinned 64-character SHA-256 for every invocation,
+including offline cache reuse. Placeholder hashes are refused before any network
+request or child process. Release versions are restricted to safe version strings,
+and download URLs must use HTTPS without embedded credentials. HTTPS-to-HTTP
+redirects are refused. Downloads have a 256 MiB byte cap and a ten-minute total
+deadline that also closes a stalled response body.
+
+Downloads use a unique temporary file and pass the pinned SHA-256 check before
+being moved into the executable cache. Failed downloads leave no temporary file,
+and a mismatched response cannot replace an existing cache. The cached JAR is
+verified again immediately before starting the server. Gradle's 9.7.1 distribution
+also has `distributionSha256Sum` pinned to the
+[official vendor checksum](https://services.gradle.org/distributions/gradle-9.7.1-bin.zip.sha256).
+The wrapper JAR checksum was separately verified in the audit; distribution
+verification does not audit Maven artifacts or the downloaded server JAR code.
+
+
+The JDK-only offline regression harness compiles without Gradle or external dependencies:
+
+```sh
+test_dir=$(mktemp -d)
+javac --release 11 -d "$test_dir" scripts/Launcher.java scripts/LauncherSecurityTest.java
+java -cp "$test_dir" LauncherSecurityTest
+rm -rf -- "$test_dir"
+```
+
+The harness checks malformed digests, unsafe paths/URLs/symlinks, bounded stream
+copying, and refusal to promote mismatched bytes over an existing cache. It uses
+inert local bytes and never downloads or runs the MCP server JAR.
